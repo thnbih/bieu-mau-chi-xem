@@ -435,7 +435,7 @@ export default function App() {
             padding: 10,
           }}
         >
-          <strong style={{ display: "block", marginBottom: 8 }}>Tim Kiem</strong>
+          <strong style={{ display: "block", marginBottom: 8 }}>Tìm kiếm (tương đối)</strong>
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -462,8 +462,8 @@ export default function App() {
           >
             <span>
               {normalizedSearch
-                ? `${matchedLineIndexes.length} ket qua`
-                : "Nhap tu khoa de tim"}
+                ? `${matchedLineIndexes.length} kết quả`
+                : "Nhập từ khóa để tìm"}
             </span>
             <div style={{ display: "flex", gap: 6 }}>
               <button
@@ -496,12 +496,12 @@ export default function App() {
             }}
           >
             {normalizedSearch && !previewMatches.length && (
-              <div style={{ color: "#64748b", fontSize: 13 }}>Khong tim thay ket qua.</div>
+              <div style={{ color: "#64748b", fontSize: 13 }}>Hăm có kết quả.</div>
             )}
 
             {!normalizedSearch && (
               <div style={{ color: "#64748b", fontSize: 13 }}>
-                Ket qua preview se hien thi tai day.
+                Kết quả preview sẽ hiển thị tại đây.
               </div>
             )}
 
