@@ -77,6 +77,45 @@ export default function App() {
   const isError = result.startsWith("ERROR:");
   const jsonLines = !isError && result ? result.split("\n") : [];
 
+  const renderJsonLine = (line) => {
+    if (!line) return " ";
+
+    const tokenRegex =
+      /("(?:\\.|[^"\\])*"(?=\s*:))|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\btrue\b|\bfalse\b|\bnull\b/g;
+    const nodes = [];
+    let lastIndex = 0;
+    let partIndex = 0;
+    let match;
+
+    while ((match = tokenRegex.exec(line)) !== null) {
+      if (match.index > lastIndex) {
+        nodes.push(line.slice(lastIndex, match.index));
+      }
+
+      const isKey = Boolean(match[1]);
+      nodes.push(
+        <span
+          key={`tok-${partIndex}`}
+          style={{
+            color: isKey ? "#ea580c" : "#1e3a8a",
+            fontWeight: isKey ? 600 : 500,
+          }}
+        >
+          {match[0]}
+        </span>
+      );
+
+      lastIndex = tokenRegex.lastIndex;
+      partIndex += 1;
+    }
+
+    if (lastIndex < line.length) {
+      nodes.push(line.slice(lastIndex));
+    }
+
+    return nodes.length ? nodes : " ";
+  };
+
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
       <h2>Đọc biểu mẫu chỉ xem cực hay</h2>
@@ -213,7 +252,7 @@ export default function App() {
                       color: "#0f172a",
                     }}
                   >
-                    {line || " "}
+                    {renderJsonLine(line)}
                   </div>
                 </div>
               ))}
