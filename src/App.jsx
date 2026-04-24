@@ -14,7 +14,10 @@ export default function App() {
   const [wrapLines, setWrapLines] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [jsonFontSize, setJsonFontSize] = useState(13);
   const viewerRef = useRef(null);
+  const minJsonFontSize = 1;
+  const maxJsonFontSize = 50;
 
   const normalizeToken = (rawToken) => {
     return rawToken
@@ -122,6 +125,44 @@ export default function App() {
     [matchedLineIndexes]
   );
 
+  const jsonLineMeta = useMemo(() => {
+    const nextDepthAfterLine = (line, startDepth) => {
+      let depth = startDepth;
+      let inString = false;
+
+      for (let index = 0; index < line.length; index += 1) {
+        const char = line[index];
+
+        if (inString) {
+          if (char === '"' && (index === 0 || line[index - 1] !== "\\")) {
+            inString = false;
+          }
+          continue;
+        }
+
+        if (char === '"') {
+          inString = true;
+          continue;
+        }
+
+        if (char === "{" || char === "[") {
+          depth += 1;
+        } else if ((char === "}" || char === "]") && depth > 0) {
+          depth -= 1;
+        }
+      }
+
+      return depth;
+    };
+
+    let depth = 0;
+    return jsonLines.map((line) => {
+      const meta = { depthStart: depth };
+      depth = nextDepthAfterLine(line, depth);
+      return meta;
+    });
+  }, [jsonLines]);
+
   const previewMatches = useMemo(() => {
     return matchedLineIndexes.map((lineIndex, idx) => ({
       idx,
@@ -156,6 +197,18 @@ export default function App() {
     setActiveMatchIndex(
       (prev) =>
         (prev - 1 + matchedLineIndexes.length) % matchedLineIndexes.length
+    );
+  };
+
+  const increaseJsonFontSize = () => {
+    setJsonFontSize((currentSize) =>
+      Math.min(maxJsonFontSize, currentSize + 1)
+    );
+  };
+
+  const decreaseJsonFontSize = () => {
+    setJsonFontSize((currentSize) =>
+      Math.max(minJsonFontSize, currentSize - 1)
     );
   };
 
@@ -223,79 +276,174 @@ export default function App() {
     );
   };
 
-  const renderJsonLine = (line) => {
+  const renderJsonLine = (line, depthStart = 0) => {
     if (!line) return " ";
 
-    const tokenRegex =
-      /("(?:\\.|[^"\\])*"(?=\s*:))|("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\btrue\b|\bfalse\b|\bnull\b/g;
     const nodes = [];
-    let lastIndex = 0;
     let partIndex = 0;
-    let match;
+    let index = 0;
+    let depth = depthStart;
 
-    while ((match = tokenRegex.exec(line)) !== null) {
-      if (match.index > lastIndex) {
-        nodes.push(line.slice(lastIndex, match.index));
+    const bracketColors = [
+      "var(--json-bracket-1)",
+      "var(--json-bracket-2)",
+      "var(--json-bracket-3)",
+      "var(--json-bracket-4)",
+      "var(--json-bracket-5)",
+      "var(--json-bracket-6)",
+    ];
+
+    const pushText = (text) => {
+      if (!text) return;
+      nodes.push(text);
+    };
+
+    const isEscaped = (text, position) => {
+      let slashCount = 0;
+      for (let cursor = position - 1; cursor >= 0 && text[cursor] === "\\"; cursor -= 1) {
+        slashCount += 1;
+      }
+      return slashCount % 2 === 1;
+    };
+
+    while (index < line.length) {
+      const char = line[index];
+
+      if (char === '"') {
+        let endIndex = index + 1;
+        while (endIndex < line.length) {
+          if (line[endIndex] === '"' && !isEscaped(line, endIndex)) {
+            break;
+          }
+          endIndex += 1;
+        }
+
+        const token = line.slice(index, Math.min(endIndex + 1, line.length));
+        let lookAhead = endIndex + 1;
+        while (lookAhead < line.length && /\s/.test(line[lookAhead])) {
+          lookAhead += 1;
+        }
+        const isKey = line[lookAhead] === ":";
+
+        nodes.push(
+          <span
+            key={`tok-${partIndex}`}
+            style={{
+              color: isKey ? "var(--json-key)" : "var(--json-value)",
+              fontWeight: isKey ? 600 : 500,
+            }}
+          >
+            {token}
+          </span>
+        );
+
+        index = Math.min(endIndex + 1, line.length);
+        partIndex += 1;
+        continue;
       }
 
-      const isKey = Boolean(match[1]);
-      nodes.push(
-        <span
-          key={`tok-${partIndex}`}
-          style={{
-            color: isKey ? "#ea580c" : "#1e3a8a",
-            fontWeight: isKey ? 600 : 500,
-          }}
-        >
-          {match[0]}
-        </span>
-      );
+      if (char === "{" || char === "}" || char === "[" || char === "]") {
+        const isOpening = char === "{" || char === "[";
+        const level = isOpening ? depth : Math.max(depth - 1, 0);
+        const color = bracketColors[level % bracketColors.length];
 
-      lastIndex = tokenRegex.lastIndex;
-      partIndex += 1;
-    }
+        nodes.push(
+          <span
+            key={`tok-${partIndex}`}
+            style={{ color, fontWeight: 700 }}
+          >
+            {char}
+          </span>
+        );
 
-    if (lastIndex < line.length) {
-      nodes.push(line.slice(lastIndex));
+        depth = isOpening ? depth + 1 : Math.max(depth - 1, 0);
+        index += 1;
+        partIndex += 1;
+        continue;
+      }
+
+      if (char === "-" || /[0-9]/.test(char)) {
+        const numberMatch = line.slice(index).match(/^(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+        if (numberMatch) {
+          nodes.push(
+            <span
+              key={`tok-${partIndex}`}
+              style={{ color: "var(--json-value)", fontWeight: 500 }}
+            >
+              {numberMatch[1]}
+            </span>
+          );
+          index += numberMatch[1].length;
+          partIndex += 1;
+          continue;
+        }
+      }
+
+      const literalMatch = line.slice(index).match(/^(true|false|null)\b/);
+      if (literalMatch) {
+        nodes.push(
+          <span
+            key={`tok-${partIndex}`}
+            style={{ color: "var(--json-value)", fontWeight: 500 }}
+          >
+            {literalMatch[1]}
+          </span>
+        );
+        index += literalMatch[1].length;
+        partIndex += 1;
+        continue;
+      }
+
+      pushText(char);
+      index += 1;
     }
 
     return nodes.length ? nodes : " ";
   };
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
-      <h2>Đọc biểu mẫu chỉ xem cực hay</h2>
+    <div
+      style={{
+        padding: 20,
+        maxWidth: 1280,
+        margin: "0 auto",
+        color: "var(--text)",
+      }}
+    >
+      <h2 style={{ marginBottom: 16 }}>Đọc biểu mẫu chỉ xem cực hay</h2>
 
-      <div>
-        <label>Base URL (api của dự án):</label>
-        <br />
-        <input
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          style={{ width: "100%" }}
-        />
-      </div>
+      <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
+        <div>
+          <label>Base URL (api của dự án):</label>
+          <br />
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </div>
 
-      <div>
-        <label>API Path (fileDuLieu):</label>
-        <br />
-        <input
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          style={{ width: "100%" }}
-        />
-      </div>
+        <div>
+          <label>API Path (fileDuLieu):</label>
+          <br />
+          <input
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </div>
 
-      <div>
-        <label>Bearer Token:</label>
-        <br />
-        <textarea
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Dan JWT hoac ca 'Bearer <token>'"
-          rows={4}
-          style={{ width: "100%" }}
-        />
+        <div>
+          <label>Bearer Token:</label>
+          <br />
+          <textarea
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Dan JWT hoac ca 'Bearer <token>'"
+            rows={4}
+            style={{ width: "100%" }}
+          />
+        </div>
       </div>
 
       <button
@@ -322,105 +470,120 @@ export default function App() {
               alignItems: "center",
               justifyContent: "space-between",
               marginBottom: 8,
+              gap: 12,
+              flexWrap: "wrap",
             }}
           >
-            <strong>JSON Output</strong>
-            <label
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}
-            >
-              <input
-                type="checkbox"
-                checked={wrapLines}
-                onChange={(e) => setWrapLines(e.target.checked)}
-              />
-              Wrap lines
-            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <strong>JSON Output</strong>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button type="button" onClick={decreaseJsonFontSize} disabled={jsonFontSize <= minJsonFontSize} style={{ minWidth: 36 }}>
+                  A-
+                </button>
+                <span style={{ fontSize: 13, color: "var(--muted)" }}>{jsonFontSize}px</span>
+                <button type="button" onClick={increaseJsonFontSize} disabled={jsonFontSize >= maxJsonFontSize} style={{ minWidth: 36 }}>
+                  A+
+                </button>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={wrapLines}
+                  onChange={(e) => setWrapLines(e.target.checked)}
+                />
+                Wrap lines
+              </label>
+            </div>
           </div>
 
           <div
             ref={viewerRef}
             style={{
-              border: "1px solid #d1d5db",
-              borderRadius: 10,
-              background: "#f8fafc",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              background: "var(--surface)",
               maxHeight: 520,
               overflow: "auto",
+              boxShadow: "0 16px 40px var(--shadow-soft)",
             }}
           >
-          {!result && (
-            <div style={{ padding: 14, color: "#64748b", fontSize: 14 }}>
-              Chua co du lieu. Bam "Fetch & Decode" de tai va hien thi JSON.
-            </div>
-          )}
+            {!result && (
+              <div style={{ padding: 14, color: "var(--muted)", fontSize: 14 }}>
+                Chua co du lieu. Bam "Fetch & Decode" de tai va hien thi JSON.
+              </div>
+            )}
 
-          {isError && (
-            <pre
-              style={{
-                margin: 0,
-                padding: 14,
-                background: "#fff1f2",
-                color: "#9f1239",
-                whiteSpace: "pre-wrap",
-                fontFamily: "Consolas, 'Courier New', monospace",
-                lineHeight: 1.55,
-                fontSize: 13,
-              }}
-            >
-              {result}
-            </pre>
-          )}
+            {isError && (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: 14,
+                  background: "var(--error-bg)",
+                  color: "var(--error-text)",
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "Consolas, 'Courier New', monospace",
+                  lineHeight: 1.55,
+                  fontSize: 13,
+                }}
+              >
+                {result}
+              </pre>
+            )}
 
-          {!isError && result && (
-            <div
-              style={{
-                fontFamily: "Consolas, 'Courier New', monospace",
-                fontSize: 13,
-                lineHeight: 1.65,
-                tabSize: 2,
-              }}
-            >
-              {jsonLines.map((line, index) => (
-                <div
-                  key={index}
-                  data-line-index={index}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "56px 1fr",
-                    borderBottom: "1px solid #f1f5f9",
-                    background:
-                      currentMatchedLine === index
-                        ? "#fde68a"
-                        : matchedLineSet.has(index)
-                          ? "#fef3c7"
-                          : "transparent",
-                  }}
-                >
+            {!isError && result && (
+              <div
+                style={{
+                  fontFamily: "Consolas, 'Courier New', monospace",
+                  fontSize: jsonFontSize,
+                  lineHeight: 1.65,
+                  tabSize: 2,
+                }}
+              >
+                {jsonLines.map((line, index) => (
                   <div
+                    key={index}
+                    data-line-index={index}
                     style={{
-                      textAlign: "right",
-                      padding: "0 10px",
-                      color: "#94a3b8",
-                      background: "#f1f5f9",
-                      userSelect: "none",
-                      borderRight: "1px solid #e2e8f0",
+                      display: "grid",
+                      gridTemplateColumns: "56px 1fr",
+                      borderBottom: "1px solid var(--line)",
+                      background:
+                        currentMatchedLine === index
+                          ? "var(--row-active)"
+                          : matchedLineSet.has(index)
+                            ? "var(--row-match)"
+                            : "transparent",
                     }}
                   >
-                    {index + 1}
+                    <div
+                      style={{
+                        textAlign: "right",
+                        padding: "0 10px",
+                        color: "var(--muted)",
+                        background:
+                          index % 2 === 0
+                            ? "var(--line-soft)"
+                            : "var(--surface-strong)",
+                        userSelect: "none",
+                        borderRight: "1px solid var(--line)",
+                      }}
+                    >
+                      {index + 1}
+                    </div>
+                    <div
+                      style={{
+                        padding: "0 12px",
+                        whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                        wordBreak: wrapLines ? "break-word" : "normal",
+                        color: "var(--text-strong)",
+                      }}
+                    >
+                      {renderJsonLine(line, jsonLineMeta[index]?.depthStart || 0)}
+                    </div>
                   </div>
-                  <div
-                    style={{
-                      padding: "0 12px",
-                      whiteSpace: wrapLines ? "pre-wrap" : "pre",
-                      wordBreak: wrapLines ? "break-word" : "normal",
-                      color: "#0f172a",
-                    }}
-                  >
-                    {renderJsonLine(line)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -429,10 +592,11 @@ export default function App() {
             flex: "0 1 320px",
             minWidth: 280,
             width: 320,
-            border: "1px solid #d1d5db",
-            borderRadius: 10,
-            background: "#ffffff",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            background: "var(--surface-2)",
             padding: 10,
+            boxShadow: "0 16px 40px var(--shadow-soft)",
           }}
         >
           <strong style={{ display: "block", marginBottom: 8 }}>Tìm kiếm (tương đối)</strong>
@@ -443,8 +607,10 @@ export default function App() {
             style={{
               width: "100%",
               padding: "8px 10px",
-              border: "1px solid #cbd5e1",
+              border: "1px solid var(--border)",
               borderRadius: 8,
+              background: "var(--surface)",
+              color: "var(--text-strong)",
               boxSizing: "border-box",
             }}
           />
@@ -457,7 +623,7 @@ export default function App() {
               alignItems: "center",
               justifyContent: "space-between",
               fontSize: 13,
-              color: "#475569",
+              color: "var(--muted)",
             }}
           >
             <span>
@@ -489,18 +655,18 @@ export default function App() {
 
           <div
             style={{
-              borderTop: "1px solid #e2e8f0",
+              borderTop: "1px solid var(--line)",
               paddingTop: 8,
               maxHeight: 430,
               overflow: "auto",
             }}
           >
             {normalizedSearch && !previewMatches.length && (
-              <div style={{ color: "#64748b", fontSize: 13 }}>Hăm có kết quả.</div>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Hăm có kết quả.</div>
             )}
 
             {!normalizedSearch && (
-              <div style={{ color: "#64748b", fontSize: 13 }}>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>
                 Kết quả preview sẽ hiển thị tại đây.
               </div>
             )}
@@ -513,22 +679,24 @@ export default function App() {
                   width: "100%",
                   textAlign: "left",
                   marginBottom: 6,
-                  border: "1px solid #e2e8f0",
+                  border: "1px solid var(--border)",
                   borderRadius: 8,
                   padding: "8px 9px",
                   background:
-                    currentMatchedLine === item.lineIndex ? "#fffbeb" : "#ffffff",
+                    currentMatchedLine === item.lineIndex
+                      ? "var(--row-active-soft)"
+                      : "var(--surface)",
                   cursor: "pointer",
                 }}
               >
-                <div style={{ fontSize: 12, color: "#475569", marginBottom: 2 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>
                   Dong {item.lineIndex + 1}
                 </div>
                 <div
                   style={{
                     fontSize: 12,
                     lineHeight: 1.45,
-                    color: "#0f172a",
+                    color: "var(--text-strong)",
                     fontFamily: "Consolas, 'Courier New', monospace",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
