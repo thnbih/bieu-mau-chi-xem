@@ -12,7 +12,6 @@ const bracketColors = [
 
 const blockedApiBases = [
   "https://api-bvtudu.tudu.com.vn",
-  "https://api-his.benhvien304.com",
 ];
 
 const normalizeForSearch = (value) => {
