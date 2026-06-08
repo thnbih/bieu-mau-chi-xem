@@ -10,6 +10,8 @@ const bracketColors = [
   "var(--json-bracket-6)",
 ];
 
+const blockedApiBase = "https://api-bvtudu.tudu.com.vn";
+
 const normalizeForSearch = (value) => {
   return (value || "")
     .normalize("NFD")
@@ -70,6 +72,29 @@ const buildJsonLineMeta = (jsonLines) => {
   });
 };
 
+const isBlockedApiRequest = (baseUrl, path) => {
+  const normalizedBaseUrl = baseUrl.trim();
+  const normalizedPath = path.trim();
+
+  if (
+    normalizedPath === "/admin" ||
+    normalizedPath.startsWith("/admin/") ||
+    normalizedPath.startsWith("/admin?")
+  ) {
+    return false;
+  }
+
+  const requestUrl = path.startsWith("http")
+    ? path.trim()
+    : `${normalizedBaseUrl}/api/his/v1/files/${path}`;
+
+  try {
+    return new URL(requestUrl).origin === blockedApiBase;
+  } catch {
+    return normalizedBaseUrl.replace(/\/+$/, "") === blockedApiBase;
+  }
+};
+
 export default function App() {
   const [baseUrl, setBaseUrl] = useState(
     "https://api-his.benhvienkhuvucthuduc.vn"
@@ -84,7 +109,11 @@ export default function App() {
   const [searchText, setSearchText] = useState("");
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [jsonFontSize, setJsonFontSize] = useState(13);
+  const [blockedStage, setBlockedStage] = useState("none");
+  const [blockedMessage, setBlockedMessage] = useState("");
   const viewerRef = useRef(null);
+  const blockedVideoRef = useRef(null);
+  const blockedMaxSeekTimeRef = useRef(0);
   const minJsonFontSize = 1;
   const maxJsonFontSize = 50;
 
@@ -95,7 +124,62 @@ export default function App() {
       .replace(/[\r\n\t]/g, "");
   };
 
+  const showBlockedFlow = () => {
+    setLoading(false);
+    setResult("");
+    setBlockedMessage("");
+    setActiveMatchIndex(0);
+    blockedMaxSeekTimeRef.current = 0;
+    setBlockedStage("video");
+  };
+
+  const handleBlockedVideoLoaded = () => {
+    const video = blockedVideoRef.current;
+    if (!video) return;
+
+    video.volume = 1;
+    video.muted = false;
+
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {});
+    }
+  };
+
+  const handleBlockedVideoTimeUpdate = () => {
+    const video = blockedVideoRef.current;
+    if (!video) return;
+
+    blockedMaxSeekTimeRef.current = Math.max(
+      blockedMaxSeekTimeRef.current,
+      video.currentTime
+    );
+  };
+
+  const handleBlockedVideoSeeking = () => {
+    const video = blockedVideoRef.current;
+    if (!video) return;
+
+    if (video.currentTime > blockedMaxSeekTimeRef.current + 0.1) {
+      video.currentTime = blockedMaxSeekTimeRef.current;
+    }
+  };
+
+  const handleBlockedVideoEnded = () => {
+    setBlockedStage("image");
+  };
+
+  const closeBlockedPicture = () => {
+    setBlockedStage("none");
+    setBlockedMessage("Đã chặn tra cứu trên dự án này");
+  };
+
   const fetchGz = async () => {
+    if (isBlockedApiRequest(baseUrl, path)) {
+      showBlockedFlow();
+      return;
+    }
+
     try {
       setLoading(true);
       setActiveMatchIndex(0);
@@ -166,19 +250,6 @@ export default function App() {
     [normalizedSearch]
   );
 
-  const isLineMatched = (line) => {
-    if (!normalizedSearch) return false;
-
-    const normalizedLine = normalizeForSearch(line);
-    if (normalizedLine.includes(normalizedSearch)) return true;
-
-    if (normalizedSearchWords.length > 1) {
-      return normalizedSearchWords.every((word) => normalizedLine.includes(word));
-    }
-
-    return false;
-  };
-
   const matchedLineIndexes = useMemo(() => {
     if (isError || !normalizedSearch) return [];
 
@@ -189,7 +260,7 @@ export default function App() {
       }
     }
     return matches;
-  }, [isError, jsonLines, normalizedSearch]);
+  }, [isError, jsonLines, normalizedSearch, normalizedSearchWords]);
 
   const matchedLineSet = useMemo(
     () => new Set(matchedLineIndexes),
@@ -213,7 +284,7 @@ export default function App() {
   useEffect(() => {
     if (currentMatchedLine < 0 || !viewerRef.current) return;
     const row = viewerRef.current.querySelector(
-      `[data-line-index=\"${currentMatchedLine}\"]`
+      `[data-line-index="${currentMatchedLine}"]`
     );
     row?.scrollIntoView({ block: "nearest" });
   }, [currentMatchedLine]);
@@ -432,7 +503,117 @@ export default function App() {
         color: "var(--text)",
       }}
     >
+      {blockedStage === "video" && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0, 0, 0, 0.96)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <video
+            ref={blockedVideoRef}
+            src="/video.mp4"
+            autoPlay
+            playsInline
+            preload="auto"
+            controls={false}
+            onLoadedMetadata={handleBlockedVideoLoaded}
+            onTimeUpdate={handleBlockedVideoTimeUpdate}
+            onSeeking={handleBlockedVideoSeeking}
+            onEnded={handleBlockedVideoEnded}
+            onContextMenu={(event) => event.preventDefault()}
+            style={{
+              width: "min(100%, 960px)",
+              maxHeight: "100%",
+              objectFit: "contain",
+              background: "#000",
+            }}
+          />
+        </div>
+      )}
+
+      {blockedStage === "image" && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0, 0, 0, 0.88)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              maxWidth: "min(92vw, 1100px)",
+              maxHeight: "92vh",
+              background: "#111",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: 16,
+              overflow: "hidden",
+              boxShadow: "0 24px 70px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            <img
+              src="/picture.jpg"
+              alt="Thong bao chan tra cuu"
+              style={{
+                display: "block",
+                maxWidth: "100%",
+                maxHeight: "calc(92vh - 64px)",
+                objectFit: "contain",
+                background: "#111",
+              }}
+            />
+            <button
+              type="button"
+              onClick={closeBlockedPicture}
+              style={{
+                position: "absolute",
+                right: 12,
+                top: 12,
+                minWidth: 96,
+                padding: "8px 12px",
+                border: "none",
+                borderRadius: 999,
+                background: "#f8fafc",
+                color: "#111827",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
       <h2 style={{ marginBottom: 16 }}>Đọc biểu mẫu chỉ xem cực hay</h2>
+
+      {blockedMessage && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+            background: "var(--surface-2)",
+            color: "var(--text-strong)",
+            fontWeight: 600,
+          }}
+        >
+          {blockedMessage}
+        </div>
+      )}
 
       <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
         <div>
