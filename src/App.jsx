@@ -10,7 +10,10 @@ const bracketColors = [
   "var(--json-bracket-6)",
 ];
 
-const blockedApiBase = "https://api-bvtudu.tudu.com.vn";
+const blockedApiBases = [
+  "https://api-bvtudu.tudu.com.vn",
+  "https://api-his.benhvien304.com",
+];
 
 const normalizeForSearch = (value) => {
   return (value || "")
@@ -89,9 +92,12 @@ const isBlockedApiRequest = (baseUrl, path) => {
     : `${normalizedBaseUrl}/api/his/v1/files/${path}`;
 
   try {
-    return new URL(requestUrl).origin === blockedApiBase;
+    const requestOrigin = new URL(requestUrl).origin;
+    return blockedApiBases.includes(requestOrigin);
   } catch {
-    return normalizedBaseUrl.replace(/\/+$/, "") === blockedApiBase;
+    return blockedApiBases.some(
+      (blockedBase) => normalizedBaseUrl.replace(/\/+$/, "") === blockedBase
+    );
   }
 };
 
@@ -111,6 +117,7 @@ export default function App() {
   const [jsonFontSize, setJsonFontSize] = useState(13);
   const [blockedStage, setBlockedStage] = useState("none");
   const [blockedMessage, setBlockedMessage] = useState("");
+  const [blockedCountdown, setBlockedCountdown] = useState(15);
   const viewerRef = useRef(null);
   const blockedVideoRef = useRef(null);
   const blockedMaxSeekTimeRef = useRef(0);
@@ -129,9 +136,27 @@ export default function App() {
     setResult("");
     setBlockedMessage("");
     setActiveMatchIndex(0);
+    setBlockedCountdown(15);
     blockedMaxSeekTimeRef.current = 0;
     setBlockedStage("video");
   };
+
+  useEffect(() => {
+    if (blockedStage !== "video" || blockedCountdown <= 0) return undefined;
+
+    const timerId = window.setInterval(() => {
+      setBlockedCountdown((currentCountdown) => {
+        if (currentCountdown <= 1) {
+          window.clearInterval(timerId);
+          return 0;
+        }
+
+        return currentCountdown - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [blockedStage, blockedCountdown]);
 
   const handleBlockedVideoLoaded = () => {
     const video = blockedVideoRef.current;
@@ -169,10 +194,25 @@ export default function App() {
     setBlockedStage("image");
   };
 
+  const closeBlockedVideo = () => {
+    if (blockedCountdown > 0) return;
+    setBlockedStage("image");
+  };
+
   const closeBlockedPicture = () => {
     setBlockedStage("none");
-    setBlockedMessage("Đã chặn tra cứu trên dự án này");
+    setBlockedMessage("Dự án này chưa được tra cứu rồi hihi");
   };
+
+  useEffect(() => {
+    if (!blockedMessage) return undefined;
+
+    const timerId = window.setTimeout(() => {
+      setBlockedMessage("");
+    }, 3200);
+
+    return () => window.clearTimeout(timerId);
+  }, [blockedMessage]);
 
   const fetchGz = async () => {
     if (isBlockedApiRequest(baseUrl, path)) {
@@ -509,13 +549,35 @@ export default function App() {
             position: "fixed",
             inset: 0,
             zIndex: 9999,
-            background: "rgba(0, 0, 0, 0.96)",
+            background: "rgba(0, 0, 0, 0.45)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             padding: 16,
           }}
         >
+          <div
+            style={{
+              position: "relative",
+              width: "min(92vw, 560px)",
+              maxWidth: "100%",
+              background: "#0f172a",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: 16,
+              overflow: "hidden",
+              boxShadow: "0 24px 70px rgba(0, 0, 0, 0.35)",
+            }}
+          >
+          <div
+            style={{
+              padding: "10px 14px 8px",
+              color: "#e2e8f0",
+              fontSize: 14,
+              fontWeight: 700,
+            }}
+          >
+            NGHE HẾT THÌ MỚI ĐƯỢC
+          </div>
           <video
             ref={blockedVideoRef}
             src="/video.mp4"
@@ -529,12 +591,36 @@ export default function App() {
             onEnded={handleBlockedVideoEnded}
             onContextMenu={(event) => event.preventDefault()}
             style={{
-              width: "min(100%, 960px)",
-              maxHeight: "100%",
+              width: "100%",
+              height: "320px",
+              maxHeight: "60vh",
               objectFit: "contain",
               background: "#000",
+              display: "block",
             }}
           />
+          <button
+            type="button"
+            onClick={closeBlockedVideo}
+            disabled={blockedCountdown > 0}
+            style={{
+              position: "absolute",
+              right: 12,
+              top: 10,
+              minWidth: 140,
+              padding: "8px 12px",
+              border: "none",
+              borderRadius: 999,
+              background: blockedCountdown > 0 ? "rgba(255,255,255,0.7)" : "#f8fafc",
+              color: "#111827",
+              fontWeight: 700,
+              cursor: blockedCountdown > 0 ? "not-allowed" : "pointer",
+              opacity: blockedCountdown > 0 ? 0.85 : 1,
+            }}
+          >
+            {blockedCountdown > 0 ? `Đóng sau ${blockedCountdown}s` : "Đóng"}
+          </button>
+          </div>
         </div>
       )}
 
@@ -602,13 +688,20 @@ export default function App() {
       {blockedMessage && (
         <div
           style={{
-            marginBottom: 16,
-            padding: "12px 14px",
-            borderRadius: 12,
-            border: "1px solid var(--border)",
-            background: "var(--surface-2)",
-            color: "var(--text-strong)",
-            fontWeight: 600,
+            position: "fixed",
+            left: "50%",
+            bottom: 24,
+            transform: "translateX(-50%)",
+            zIndex: 10000,
+            padding: "12px 16px",
+            borderRadius: 999,
+            border: "1px solid rgba(255, 255, 255, 0.16)",
+            background: "rgba(15, 23, 42, 0.96)",
+            color: "#e2e8f0",
+            fontWeight: 700,
+            boxShadow: "0 18px 40px rgba(0, 0, 0, 0.35)",
+            maxWidth: "calc(100vw - 32px)",
+            textAlign: "center",
           }}
         >
           {blockedMessage}
