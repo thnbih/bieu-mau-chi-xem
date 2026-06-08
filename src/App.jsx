@@ -1,6 +1,75 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import pako from "pako";
 
+const bracketColors = [
+  "var(--json-bracket-1)",
+  "var(--json-bracket-2)",
+  "var(--json-bracket-3)",
+  "var(--json-bracket-4)",
+  "var(--json-bracket-5)",
+  "var(--json-bracket-6)",
+];
+
+const normalizeForSearch = (value) => {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const isLineMatched = (line, normalizedSearch, normalizedSearchWords) => {
+  if (!normalizedSearch) return false;
+
+  const normalizedLine = normalizeForSearch(line);
+  if (normalizedLine.includes(normalizedSearch)) return true;
+
+  if (normalizedSearchWords.length > 1) {
+    return normalizedSearchWords.every((word) => normalizedLine.includes(word));
+  }
+
+  return false;
+};
+
+const nextDepthAfterLine = (line, startDepth) => {
+  let depth = startDepth;
+  let inString = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+
+    if (inString) {
+      if (char === '"' && (index === 0 || line[index - 1] !== "\\")) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      depth += 1;
+    } else if ((char === "}" || char === "]") && depth > 0) {
+      depth -= 1;
+    }
+  }
+
+  return depth;
+};
+
+const buildJsonLineMeta = (jsonLines) => {
+  let depth = 0;
+  return jsonLines.map((line) => {
+    const meta = { depthStart: depth };
+    depth = nextDepthAfterLine(line, depth);
+    return meta;
+  });
+};
+
 export default function App() {
   const [baseUrl, setBaseUrl] = useState(
     "https://api-his.benhvienkhuvucthuduc.vn"
@@ -29,6 +98,7 @@ export default function App() {
   const fetchGz = async () => {
     try {
       setLoading(true);
+      setActiveMatchIndex(0);
       setResult("");
 
       const normalizedToken = normalizeToken(token);
@@ -81,19 +151,20 @@ export default function App() {
   };
 
   const isError = result.startsWith("ERROR:");
-  const jsonLines = !isError && result ? result.split("\n") : [];
 
-  const normalizeForSearch = (value) => {
-    return (value || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
-  };
+  const jsonLines = useMemo(() => {
+    if (isError || !result) return [];
+    return result.split("\n");
+  }, [isError, result]);
 
-  const normalizedSearch = normalizeForSearch(searchText);
-  const normalizedSearchWords = normalizedSearch.split(" ").filter(Boolean);
+  const normalizedSearch = useMemo(
+    () => normalizeForSearch(searchText),
+    [searchText]
+  );
+  const normalizedSearchWords = useMemo(
+    () => normalizedSearch.split(" ").filter(Boolean),
+    [normalizedSearch]
+  );
 
   const isLineMatched = (line) => {
     if (!normalizedSearch) return false;
@@ -113,7 +184,7 @@ export default function App() {
 
     const matches = [];
     for (let i = 0; i < jsonLines.length; i += 1) {
-      if (isLineMatched(jsonLines[i])) {
+      if (isLineMatched(jsonLines[i], normalizedSearch, normalizedSearchWords)) {
         matches.push(i);
       }
     }
@@ -125,43 +196,7 @@ export default function App() {
     [matchedLineIndexes]
   );
 
-  const jsonLineMeta = useMemo(() => {
-    const nextDepthAfterLine = (line, startDepth) => {
-      let depth = startDepth;
-      let inString = false;
-
-      for (let index = 0; index < line.length; index += 1) {
-        const char = line[index];
-
-        if (inString) {
-          if (char === '"' && (index === 0 || line[index - 1] !== "\\")) {
-            inString = false;
-          }
-          continue;
-        }
-
-        if (char === '"') {
-          inString = true;
-          continue;
-        }
-
-        if (char === "{" || char === "[") {
-          depth += 1;
-        } else if ((char === "}" || char === "]") && depth > 0) {
-          depth -= 1;
-        }
-      }
-
-      return depth;
-    };
-
-    let depth = 0;
-    return jsonLines.map((line) => {
-      const meta = { depthStart: depth };
-      depth = nextDepthAfterLine(line, depth);
-      return meta;
-    });
-  }, [jsonLines]);
+  const jsonLineMeta = useMemo(() => buildJsonLineMeta(jsonLines), [jsonLines]);
 
   const previewMatches = useMemo(() => {
     return matchedLineIndexes.map((lineIndex, idx) => ({
@@ -170,10 +205,6 @@ export default function App() {
       preview: jsonLines[lineIndex]?.trim() || "(dong trong)",
     }));
   }, [matchedLineIndexes, jsonLines]);
-
-  useEffect(() => {
-    setActiveMatchIndex(0);
-  }, [searchText, result]);
 
   const currentMatchedLine = matchedLineIndexes.length
     ? matchedLineIndexes[activeMatchIndex % matchedLineIndexes.length]
@@ -283,15 +314,6 @@ export default function App() {
     let partIndex = 0;
     let index = 0;
     let depth = depthStart;
-
-    const bracketColors = [
-      "var(--json-bracket-1)",
-      "var(--json-bracket-2)",
-      "var(--json-bracket-3)",
-      "var(--json-bracket-4)",
-      "var(--json-bracket-5)",
-      "var(--json-bracket-6)",
-    ];
 
     const pushText = (text) => {
       if (!text) return;
@@ -602,7 +624,10 @@ export default function App() {
           <strong style={{ display: "block", marginBottom: 8 }}>Tìm kiếm (tương đối)</strong>
           <input
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => {
+              setSearchText(e.target.value);
+              setActiveMatchIndex(0);
+            }}
             placeholder="Tim trong JSON..."
             style={{
               width: "100%",
