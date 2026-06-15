@@ -14,6 +14,33 @@ const blockedApiBases = [
   "https://api-sdsfdsfdbvtudu.tudu.com.vn",
 ];
 
+const apiPresets = [
+  {
+    id: "tu-du-2",
+    label: "Từ Dũ 2",
+    url: "https://api-bvtuducangio.tudu.com.vn/",
+  },
+  {
+    id: "thu-duc",
+    label: "Thủ Đức",
+    url: "https://api-his.benhvienkhuvucthuduc.vn",
+  },
+  {
+    id: "vien-tim",
+    label: "Viện Tim",
+    url: "http://172.16.95.20:2301",
+  },
+  {
+    id: "cho-ray",
+    label: "Chợ Rẫy",
+    url: "https://api-his.choray.vn/",
+  },
+];
+
+const normalizeApiBaseUrl = (value) => {
+  return (value || "").trim().replace(/\/+$/, "");
+};
+
 const normalizeForSearch = (value) => {
   return (value || "")
     .normalize("NFD")
@@ -122,6 +149,16 @@ export default function App() {
   const blockedMaxSeekTimeRef = useRef(0);
   const minJsonFontSize = 1;
   const maxJsonFontSize = 50;
+
+  const selectedApiPreset = useMemo(() => {
+    const normalizedBaseUrl = normalizeApiBaseUrl(baseUrl);
+
+    return (
+      apiPresets.find(
+        (preset) => normalizeApiBaseUrl(preset.url) === normalizedBaseUrl
+      )?.id || "other"
+    );
+  }, [baseUrl]);
 
   const normalizeToken = (rawToken) => {
     return rawToken
@@ -351,6 +388,14 @@ export default function App() {
     setJsonFontSize((currentSize) =>
       Math.max(minJsonFontSize, currentSize - 1)
     );
+  };
+
+  const handleApiPresetChange = (presetUrl) => {
+    setBaseUrl(presetUrl);
+  };
+
+  const handleOtherApiChange = () => {
+    setBaseUrl("");
   };
 
   const highlightPreviewText = (text) => {
@@ -709,11 +754,78 @@ export default function App() {
 
       <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
         <div>
-          <label>Base URL (api của dự án):</label>
+          <label>Các phiếu xuất nhập kho, các phiếu dữ liệu hơn 10.000 dòng json có thể không xem được</label>
           <br />
+          <div
+            role="radiogroup"
+            aria-label="Chon nhanh API"
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              margin: "8px 0 10px",
+            }}
+          >
+            {apiPresets.map((preset) => (
+              <label
+                key={preset.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  border: "1px solid var(--border)",
+                  background:
+                    selectedApiPreset === preset.id
+                      ? "var(--row-active)"
+                      : "var(--surface)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="api-preset"
+                  checked={selectedApiPreset === preset.id}
+                  onChange={() => handleApiPresetChange(preset.url)}
+                />
+                {preset.label}
+              </label>
+            ))}
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 12px",
+                borderRadius: 999,
+                border: "1px solid var(--border)",
+                background:
+                  selectedApiPreset === "other"
+                    ? "var(--row-active)"
+                    : "var(--surface)",
+                cursor: "pointer",
+                userSelect: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              <input
+                type="radio"
+                name="api-preset"
+                checked={selectedApiPreset === "other"}
+                onChange={handleOtherApiChange}
+              />
+              Khác
+            </label>
+          </div>
           <input
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="Chon 1 preset ben tren hoac nhap Base URL khac"
             style={{ width: "100%" }}
           />
         </div>
