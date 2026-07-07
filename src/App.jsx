@@ -14,6 +14,8 @@ const blockedApiBases = [
   "https://api-sdsfdsfdbvtudu.tudu.com.vn",
 ];
 
+const apiProxyEndpoint = "/api/proxy";
+
 const apiPresets = [
   {
     id: "tu-du-2",
@@ -167,6 +169,21 @@ export default function App() {
       .replace(/[\r\n\t]/g, "");
   };
 
+  const isGzipPayload = (bytes) => {
+    return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  };
+
+  const decodeResponseBody = async (res) => {
+    const arrayBuffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    if (isGzipPayload(bytes)) {
+      return pako.ungzip(bytes, { to: "string" });
+    }
+
+    return new TextDecoder("utf-8").decode(bytes);
+  };
+
   const showBlockedFlow = () => {
     setLoading(false);
     setResult("");
@@ -270,7 +287,11 @@ export default function App() {
         ? path
         : `${baseUrl}/api/his/v1/files/${path}`;
 
-      const res = await fetch(url, {
+      const requestUrl = import.meta.env.DEV
+        ? `${url}`
+        : `${apiProxyEndpoint}?url=${encodeURIComponent(url)}`;
+
+      const res = await fetch(requestUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${normalizedToken}`,
@@ -297,14 +318,13 @@ export default function App() {
         throw new Error(errorMessage);
       }
 
-      const arrayBuffer = await res.arrayBuffer();
-      const compressed = new Uint8Array(arrayBuffer);
-      const decompressed = pako.ungzip(compressed, { to: "string" });
-      const json = JSON.parse(decompressed);
+      const bodyText = await decodeResponseBody(res);
+      const json = JSON.parse(bodyText);
 
       setResult(JSON.stringify(json, null, 2));
     } catch (err) {
-      setResult("ERROR: " + err.message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setResult(`ERROR: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
