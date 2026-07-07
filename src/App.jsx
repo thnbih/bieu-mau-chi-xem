@@ -14,8 +14,6 @@ const blockedApiBases = [
   "https://api-sdsfdsfdbvtudu.tudu.com.vn",
 ];
 
-const apiProxyEndpoint = "/api/proxy";
-
 const apiPresets = [
   {
     id: "tu-du-2",
@@ -169,28 +167,6 @@ export default function App() {
       .replace(/[\r\n\t]/g, "");
   };
 
-  const isGzipPayload = (bytes) => {
-    return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-  };
-
-  const decodeResponseBody = async (res) => {
-    const arrayBuffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-
-    if (isGzipPayload(bytes)) {
-      return pako.ungzip(bytes, { to: "string" });
-    }
-
-    return new TextDecoder("utf-8").decode(bytes);
-  };
-
-  const previewBody = (text, maxLength = 160) => {
-    const compactText = text.replace(/\s+/g, " ").trim();
-    return compactText.length > maxLength
-      ? `${compactText.slice(0, maxLength)}...`
-      : compactText;
-  };
-
   const showBlockedFlow = () => {
     setLoading(false);
     setResult("");
@@ -294,11 +270,7 @@ export default function App() {
         ? path
         : `${baseUrl}/api/his/v1/files/${path}`;
 
-      const requestUrl = import.meta.env.DEV
-        ? `${url}`
-        : `${apiProxyEndpoint}?url=${encodeURIComponent(url)}`;
-
-      const res = await fetch(requestUrl, {
+      const res = await fetch(url, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${normalizedToken}`,
@@ -325,28 +297,14 @@ export default function App() {
         throw new Error(errorMessage);
       }
 
-      const bodyText = await decodeResponseBody(res);
-
-      const contentType = res.headers.get("content-type") || "";
-      const trimmedBody = bodyText.trimStart();
-      const looksLikeJson =
-        contentType.includes("application/json") ||
-        contentType.includes("application/problem+json") ||
-        trimmedBody.startsWith("{") ||
-        trimmedBody.startsWith("[");
-
-      if (!looksLikeJson) {
-        throw new Error(
-          `Response khong phai JSON/gzip. content-type=${contentType || "(none)"}. preview=${previewBody(bodyText)}`
-        );
-      }
-
-      const json = JSON.parse(bodyText);
+      const arrayBuffer = await res.arrayBuffer();
+      const compressed = new Uint8Array(arrayBuffer);
+      const decompressed = pako.ungzip(compressed, { to: "string" });
+      const json = JSON.parse(decompressed);
 
       setResult(JSON.stringify(json, null, 2));
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setResult(`ERROR: ${errorMessage}`);
+      setResult("ERROR: " + err.message);
     } finally {
       setLoading(false);
     }
