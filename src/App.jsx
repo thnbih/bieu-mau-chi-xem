@@ -184,6 +184,13 @@ export default function App() {
     return new TextDecoder("utf-8").decode(bytes);
   };
 
+  const previewBody = (text, maxLength = 160) => {
+    const compactText = text.replace(/\s+/g, " ").trim();
+    return compactText.length > maxLength
+      ? `${compactText.slice(0, maxLength)}...`
+      : compactText;
+  };
+
   const showBlockedFlow = () => {
     setLoading(false);
     setResult("");
@@ -319,6 +326,21 @@ export default function App() {
       }
 
       const bodyText = await decodeResponseBody(res);
+
+      const contentType = res.headers.get("content-type") || "";
+      const trimmedBody = bodyText.trimStart();
+      const looksLikeJson =
+        contentType.includes("application/json") ||
+        contentType.includes("application/problem+json") ||
+        trimmedBody.startsWith("{") ||
+        trimmedBody.startsWith("[");
+
+      if (!looksLikeJson) {
+        throw new Error(
+          `Response khong phai JSON/gzip. content-type=${contentType || "(none)"}. preview=${previewBody(bodyText)}`
+        );
+      }
+
       const json = JSON.parse(bodyText);
 
       setResult(JSON.stringify(json, null, 2));
