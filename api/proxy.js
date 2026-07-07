@@ -22,9 +22,26 @@ export default async function handler(req, res) {
       headers,
     })
 
-    const contentType = targetResponse.headers.get('content-type')
+    const contentType = targetResponse.headers.get('content-type') || ''
+    const responseBytes = new Uint8Array(await targetResponse.arrayBuffer())
+    const responsePreview = new TextDecoder('utf-8')
+      .decode(responseBytes)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240)
+
     if (contentType) {
       res.setHeader('content-type', contentType)
+    }
+
+    res.status(targetResponse.status)
+    if (!targetResponse.ok) {
+      res.json({
+        message: `Upstream returned HTTP ${targetResponse.status}`,
+        contentType,
+        preview: responsePreview,
+      })
+      return
     }
 
     const contentLength = targetResponse.headers.get('content-length')
@@ -32,8 +49,7 @@ export default async function handler(req, res) {
       res.setHeader('content-length', contentLength)
     }
 
-    res.status(targetResponse.status)
-    res.send(Buffer.from(await targetResponse.arrayBuffer()))
+    res.send(Buffer.from(responseBytes))
   } catch (error) {
     res.status(502).json({
       message: error instanceof Error ? error.message : 'Proxy fetch failed',
