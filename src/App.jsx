@@ -14,31 +14,105 @@ const blockedApiBases = [
   "https://api-sdsfdsfdbvtudu.tudu.com.vn",
 ];
 
-const apiPresets = [
-  {
-    id: "tu-du-2",
-    label: "Từ Dũ 2",
-    url: "https://api-bvtuducangio.tudu.com.vn/",
-  },
-  {
-    id: "thu-duc",
-    label: "Thủ Đức",
-    url: "https://api-his.benhvienkhuvucthuduc.vn",
-  },
-  {
-    id: "vien-tim",
-    label: "Viện Tim",
-    url: "http://172.16.95.20:2301",
-  },
-  {
-    id: "cho-ray",
-    label: "Chợ Rẫy",
-    url: "https://api-his.choray.vn/",
-  },
-];
+const forbiddenRequestHeaders = new Set([
+  "connection",
+  "host",
+  "origin",
+  "referer",
+  "user-agent",
+]);
 
-const normalizeApiBaseUrl = (value) => {
-  return (value || "").trim().replace(/\/+$/, "");
+const tokenizeShellCommand = (command) => {
+  const tokens = [];
+  let token = "";
+  let quote = null;
+  let escaped = false;
+
+  for (const char of command.replace(/\\[ \t]*\r?\n/g, " ")) {
+    if (escaped) {
+      token += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (quote) {
+      if (char === quote) quote = null;
+      else token += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (/\s/.test(char)) {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+    } else {
+      token += char;
+    }
+  }
+
+  if (escaped) token += "\\";
+  if (quote) throw new Error("Lệnh cURL có dấu nháy chưa đóng.");
+  if (token) tokens.push(token);
+  return tokens;
+};
+
+const parseCurlCommand = (command) => {
+  const tokens = tokenizeShellCommand(command.trim());
+  if (!tokens.length || tokens[0].toLowerCase() !== "curl") {
+    throw new Error("Hãy dán một lệnh bắt đầu bằng curl.");
+  }
+
+  let url = "";
+  const headers = {};
+  const ignoredOptions = new Set(["--insecure", "-k", "--compressed"]);
+
+  for (let index = 1; index < tokens.length; index += 1) {
+    const option = tokens[index];
+    let value = "";
+
+    if (option === "--url") {
+      value = tokens[++index] || "";
+      url = value;
+    } else if (option.startsWith("--url=")) {
+      url = option.slice("--url=".length);
+    } else if (option === "-H" || option === "--header") {
+      value = tokens[++index] || "";
+    } else if (option.startsWith("--header=")) {
+      value = option.slice("--header=".length);
+    } else if (option.startsWith("-H") && option.length > 2) {
+      value = option.slice(2);
+    } else if (ignoredOptions.has(option) || option.startsWith("-")) {
+      if (
+        ["-X", "--request", "-d", "--data", "--data-raw", "--data-binary"].includes(
+          option
+        )
+      ) {
+        index += 1;
+      }
+      continue;
+    } else if (!url) {
+      url = option;
+    }
+
+    if (value) {
+      const separatorIndex = value.indexOf(":");
+      if (separatorIndex > 0) {
+        const name = value.slice(0, separatorIndex).trim();
+        const headerValue = value.slice(separatorIndex + 1).trim();
+        if (name && !forbiddenRequestHeaders.has(name.toLowerCase())) {
+          headers[name] = headerValue;
+        }
+      }
+    }
+  }
+
+  if (!url) throw new Error("Không tìm thấy URL trong lệnh cURL.");
+  try {
+    new URL(url);
+  } catch {
+    throw new Error("URL trong lệnh cURL không hợp lệ.");
+  }
+
+  return { url, headers };
 };
 
 const normalizeForSearch = (value) => {
@@ -128,13 +202,7 @@ const isBlockedApiRequest = (baseUrl, path) => {
 };
 
 export default function App() {
-  const [baseUrl, setBaseUrl] = useState(
-    "https://api-his.benhvienkhuvucthuduc.vn"
-  );
-  const [path, setPath] = useState(
-    "dl-bao-cao/2026-04-23/96c5efd5-426e-438b-a97c-e905b868c34d.gz"
-  );
-  const [token, setToken] = useState("");
+  const [curlCommand, setCurlCommand] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [wrapLines, setWrapLines] = useState(false);
@@ -149,23 +217,6 @@ export default function App() {
   const blockedMaxSeekTimeRef = useRef(0);
   const minJsonFontSize = 1;
   const maxJsonFontSize = 50;
-
-  const selectedApiPreset = useMemo(() => {
-    const normalizedBaseUrl = normalizeApiBaseUrl(baseUrl);
-
-    return (
-      apiPresets.find(
-        (preset) => normalizeApiBaseUrl(preset.url) === normalizedBaseUrl
-      )?.id || "other"
-    );
-  }, [baseUrl]);
-
-  const normalizeToken = (rawToken) => {
-    return rawToken
-      .trim()
-      .replace(/^Bearer\s+/i, "")
-      .replace(/[\r\n\t]/g, "");
-  };
 
   const showBlockedFlow = () => {
     setLoading(false);
@@ -251,30 +302,20 @@ export default function App() {
   }, [blockedMessage]);
 
   const fetchGz = async () => {
-    if (isBlockedApiRequest(baseUrl, path)) {
-      showBlockedFlow();
-      return;
-    }
-
     try {
       setLoading(true);
       setActiveMatchIndex(0);
       setResult("");
 
-      const normalizedToken = normalizeToken(token);
-      if (!normalizedToken) {
-        throw new Error("Thiếu token. Hãy dán JWT vào ô Bearer Token.");
+      const { url, headers } = parseCurlCommand(curlCommand);
+      if (isBlockedApiRequest("", url)) {
+        showBlockedFlow();
+        return;
       }
-
-      const url = path.startsWith("http")
-        ? path
-        : `${baseUrl}/api/his/v1/files/${path}`;
 
       const res = await fetch(url, {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${normalizedToken}`,
-        },
+        headers,
       });
 
       if (!res.ok) {
@@ -388,14 +429,6 @@ export default function App() {
     setJsonFontSize((currentSize) =>
       Math.max(minJsonFontSize, currentSize - 1)
     );
-  };
-
-  const handleApiPresetChange = (presetUrl) => {
-    setBaseUrl(presetUrl);
-  };
-
-  const handleOtherApiChange = () => {
-    setBaseUrl("");
   };
 
   const highlightPreviewText = (text) => {
@@ -754,100 +787,16 @@ export default function App() {
 
       <div style={{ display: "grid", gap: 14, marginBottom: 18 }}>
         <div>
-          <label>Các phiếu xuất nhập kho, các phiếu dữ liệu hơn 10.000 dòng json có thể không xem được</label>
-          <br />
-          <div
-            role="radiogroup"
-            aria-label="Chon nhanh API"
-            style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-              margin: "8px 0 10px",
-            }}
-          >
-            {apiPresets.map((preset) => (
-              <label
-                key={preset.id}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "8px 12px",
-                  borderRadius: 999,
-                  border: "1px solid var(--border)",
-                  background:
-                    selectedApiPreset === preset.id
-                      ? "var(--row-active)"
-                      : "var(--surface)",
-                  cursor: "pointer",
-                  userSelect: "none",
-                  fontSize: 14,
-                  fontWeight: 600,
-                }}
-              >
-                <input
-                  type="radio"
-                  name="api-preset"
-                  checked={selectedApiPreset === preset.id}
-                  onChange={() => handleApiPresetChange(preset.url)}
-                />
-                {preset.label}
-              </label>
-            ))}
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 12px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background:
-                  selectedApiPreset === "other"
-                    ? "var(--row-active)"
-                    : "var(--surface)",
-                cursor: "pointer",
-                userSelect: "none",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              <input
-                type="radio"
-                name="api-preset"
-                checked={selectedApiPreset === "other"}
-                onChange={handleOtherApiChange}
-              />
-              Khác
-            </label>
-          </div>
-          <input
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="Chon 1 preset ben tren hoac nhap Base URL khac"
-            style={{ width: "100%" }}
-          />
-        </div>
-
-        <div>
-          <label>API Path (fileDuLieu):</label>
-          <br />
-          <input
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            style={{ width: "100%" }}
-          />
-        </div>
-
-        <div>
-          <label>Bearer Token:</label>
-          <br />
+          <label htmlFor="curl-command">
+            Dán nguyên lệnh cURL (bash) vào đây. Các tùy chọn `-H`, `--url` và
+            `--insecure` sẽ được tự đọc.
+          </label>
           <textarea
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Dan JWT hoac ca 'Bearer <token>'"
-            rows={4}
+            id="curl-command"
+            value={curlCommand}
+            onChange={(e) => setCurlCommand(e.target.value)}
+            placeholder={"curl --url 'https://api.example.com/file.gz' \\\n  -H 'Authorization: Bearer ...'"}
+            rows={10}
             style={{ width: "100%" }}
           />
         </div>
