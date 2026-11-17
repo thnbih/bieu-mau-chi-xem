@@ -22,6 +22,21 @@ const forbiddenRequestHeaders = new Set([
   "user-agent",
 ]);
 
+const localProxyApiOrigin = "http://api-his.bvnhietdoi.com.vn";
+
+const getFetchUrl = (url) => {
+  if (
+    typeof window !== "undefined" &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    new URL(url).origin === localProxyApiOrigin
+  ) {
+    const requestUrl = new URL(url);
+    return `/__curl_proxy${requestUrl.pathname}${requestUrl.search}`;
+  }
+
+  return url;
+};
+
 const tokenizeShellCommand = (command) => {
   const tokens = [];
   let token = "";
@@ -113,6 +128,23 @@ const parseCurlCommand = (command) => {
   }
 
   return { url, headers };
+};
+
+const decodeApiResponse = async (response) => {
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  const text = isGzip
+    ? pako.ungzip(bytes, { to: "string" })
+    : new TextDecoder().decode(bytes);
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Phản hồi không phải JSON${response.headers.get("content-type") ? ` (${response.headers.get("content-type")})` : ""}.`
+    );
+  }
 };
 
 const normalizeForSearch = (value) => {
@@ -313,7 +345,7 @@ export default function App() {
         return;
       }
 
-      const res = await fetch(url, {
+      const res = await fetch(getFetchUrl(url), {
         method: "GET",
         headers,
       });
@@ -338,14 +370,11 @@ export default function App() {
         throw new Error(errorMessage);
       }
 
-      const arrayBuffer = await res.arrayBuffer();
-      const compressed = new Uint8Array(arrayBuffer);
-      const decompressed = pako.ungzip(compressed, { to: "string" });
-      const json = JSON.parse(decompressed);
-
+      const json = await decodeApiResponse(res);
       setResult(JSON.stringify(json, null, 2));
     } catch (err) {
-      setResult("ERROR: " + err.message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setResult("ERROR: " + errorMessage);
     } finally {
       setLoading(false);
     }

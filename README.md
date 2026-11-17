@@ -14,3 +14,10 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## Chạy local với lệnh cURL
+
+Chạy `npm install` rồi `npm run dev`. Khi dán cURL trỏ tới
+`http://api-his.bvnhietdoi.com.vn`, ứng dụng sẽ dùng Vite proxy local để tránh
+trình duyệt chặn request HTTP hoặc CORS. Proxy này chỉ có trong môi trường
+development; khi deploy production cần cấu hình backend/proxy tương đương.
