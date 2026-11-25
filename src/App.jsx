@@ -38,7 +38,7 @@ const apiPresets = [
   {
     id: "nhiet-doi",
     label: "Nhiệt đới",
-    url: "http://his.bvnhietdoi.com.vn",
+    url: "http://api-his.bvnhietdoi.com.vn",
   },
 ];
 
