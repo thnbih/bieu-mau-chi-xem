@@ -34,6 +34,11 @@ const apiPresets = [
     id: "cho-ray",
     label: "Chợ Rẫy",
     url: "https://api-his.choray.vn/",
+  },  
+  {
+    id: "nhiet-doi",
+    label: "Nhiệt đới",
+    url: "http://his.bvnhietdoi.com.vn",
   },
 ];
 
