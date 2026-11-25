@@ -369,7 +369,7 @@ export default function App() {
     if (!matchedLineIndexes.length) return;
     setActiveMatchIndex((prev) => (prev + 1) % matchedLineIndexes.length);
   };
-
+//hihi
   const goToPrevMatch = () => {
     if (!matchedLineIndexes.length) return;
     setActiveMatchIndex(
